@@ -1,0 +1,72 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  distro:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Arch Linux
+            image: archlinux:latest
+            pre: pacman -Syu --noconfirm git
+          - name: Debian 12
+            image: debian:12
+            pre: apt-get update && apt-get install -y git ca-certificates
+          - name: Debian 13
+            image: debian:13
+            pre: apt-get update && apt-get install -y git ca-certificates
+          - name: Void Linux
+            image: ghcr.io/void-linux/void-glibc-full:latest
+            pre: xbps-install -Syu xbps && xbps-install -Syu && xbps-install -y git
+          - name: Slackware 15.0
+            image: aclemons/slackware:15.0-full
+            pre: "true"
+            artifact: true
+    container: ${{ matrix.image }}
+    steps:
+      - name: Prepare
+        run: ${{ matrix.pre }}
+      - uses: actions/checkout@v4
+      - name: Install packages, Rust and build (install.sh)
+        run: ./install.sh --deps --rustup --no-menu --prefix "$PWD/_inst"
+      - name: Tests
+        run: . "$HOME/.cargo/env" && cargo test --release --locked
+      - name: Smoke test
+        run: ./_inst/bin/seiren-control --help && ./_inst/bin/seiren-control --grant-help
+      - name: Keep the binary (Slackware 15.0 has the oldest glibc, so it runs everywhere newer)
+        if: matrix.artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seiren-control-x86_64-linux
+          path: _inst/bin/seiren-control
+
+  release:
+    name: Release binary
+    needs: distro
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: seiren-control-x86_64-linux
+      - name: Pack
+        run: |
+          chmod 755 seiren-control
+          tar czf seiren-control-x86_64-linux.tar.gz seiren-control
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: seiren-control-x86_64-linux.tar.gz
+          generate_release_notes: true

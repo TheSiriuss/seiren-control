@@ -1,0 +1,371 @@
+// Shared building blocks of the Seiren Control window.
+
+export global Theme {
+    out property <color> bg: #08080f;
+    out property <color> card: #ffffff0b;
+    out property <color> line: #ffffff16;
+    out property <color> text: #f4f4fa;
+    out property <color> dim: #9a9ab2;
+    out property <color> violet: #8b5cf6;
+    out property <color> cyan: #22d3ee;
+    out property <brush> brand: @linear-gradient(90deg, #8b5cf6 0%, #22d3ee 100%);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Building blocks
+// ---------------------------------------------------------------------------------------------
+
+export component Card inherits Rectangle {
+    in property <string> title;
+    background: Theme.card;
+    border-radius: 22px;
+    border-width: 1px;
+    border-color: Theme.line;
+    preferred-height: lay.preferred-height;
+    min-height: lay.min-height;
+    lay := VerticalLayout {
+        padding: 18px;
+        spacing: 14px;
+        Text {
+            text: root.title;
+            color: Theme.dim;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 2px;
+        }
+        @children
+    }
+}
+
+export component FSlider inherits Rectangle {
+    in-out property <float> value: 0.5;
+    in property <brush> track: Theme.brand;
+    // true: a coloured fill up to the thumb over a dim groove; false: the whole groove is `track`
+    in property <bool> filled: true;
+    out property <bool> pressed: ta.pressed;
+    callback edited(float);
+    callback pressed-changed(bool);
+    height: 28px;
+    changed pressed => {
+        root.pressed-changed(root.pressed);
+    }
+
+    function pick(x: length) {
+        root.value = Math.max(0, Math.min(1, (x - 11px) / (root.width - 22px)));
+        root.edited(root.value);
+    }
+
+    Rectangle {
+        y: (parent.height - 8px) / 2;
+        width: parent.width;
+        height: 8px;
+        border-radius: 4px;
+        background: root.filled ? #ffffff17 : root.track;
+        if root.filled: Rectangle {
+            x: 0px;
+            y: 0px;
+            width: 11px + (root.width - 22px) * root.value + 4px;
+            height: parent.height;
+            border-radius: 4px;
+            background: root.track;
+        }
+    }
+    // the glow is a soft disc, not a blurred shadow: that is far cheaper to redraw every frame
+    Rectangle {
+        x: (root.width - 22px) * root.value - 12px;
+        y: (root.height - 46px) / 2;
+        width: 46px;
+        height: 46px;
+        border-radius: 23px;
+        background: @radial-gradient(circle, ta.pressed ? #8b5cf6dd : #8b5cf688 0%, #8b5cf600 70%);
+    }
+    Rectangle {
+        x: (root.width - 22px) * root.value;
+        y: (root.height - 22px) / 2;
+        width: 22px;
+        height: 22px;
+        border-radius: 11px;
+        background: #ffffff;
+    }
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                root.pick(self.mouse-x);
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                root.pick(self.mouse-x);
+            }
+        }
+    }
+}
+
+export component SliderRow inherits VerticalLayout {
+    in property <string> label;
+    in property <string> value-text;
+    in-out property <float> value;
+    in property <brush> track: Theme.brand;
+    in property <bool> filled: true;
+    callback edited(float);
+    callback pressed-changed(bool);
+    spacing: 4px;
+    HorizontalLayout {
+        Text {
+            text: root.label;
+            color: Theme.text;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        Text {
+            text: root.value-text;
+            color: Theme.dim;
+            font-size: 13px;
+            horizontal-alignment: right;
+        }
+    }
+    sl := FSlider {
+        value <=> root.value;
+        track: root.track;
+        filled: root.filled;
+        edited(v) => {
+            root.edited(v);
+        }
+        pressed-changed(p) => {
+            root.pressed-changed(p);
+        }
+    }
+}
+
+export component FSwitch inherits Rectangle {
+    in-out property <bool> checked;
+    callback toggled(bool);
+    width: 46px;
+    height: 26px;
+    border-radius: 13px;
+    background: root.checked ? Theme.brand : #ffffff22;
+    Rectangle {
+        x: root.checked ? parent.width - 23px : 3px;
+        y: 3px;
+        width: 20px;
+        height: 20px;
+        border-radius: 10px;
+        background: #ffffff;
+        animate x { duration: 170ms; easing: ease-out; }
+    }
+    TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+}
+
+export component Btn inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    callback clicked();
+    height: 46px;
+    border-radius: 15px;
+    background: root.primary ? Theme.brand : (ta.has-hover ? #ffffff1f : #ffffff12);
+    border-width: root.primary ? 0px : 1px;
+    border-color: Theme.line;
+    opacity: root.enabled ? 1.0 : 0.38;
+    drop-shadow-blur: root.primary ? 24px : 0px;
+    drop-shadow-color: root.primary ? #8b5cf670 : #00000000;
+    drop-shadow-offset-y: 6px;
+    Text {
+        text: root.text;
+        color: #ffffff;
+        font-size: 14px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component Pill inherits Rectangle {
+    in property <string> text;
+    in property <color> dot: #30d158;
+    height: 30px;
+    width: row.preferred-width;
+    border-radius: 15px;
+    background: #ffffff0d;
+    border-width: 1px;
+    border-color: Theme.line;
+    row := HorizontalLayout {
+        padding-left: 13px;
+        padding-right: 15px;
+        spacing: 9px;
+        alignment: center;
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            y: (parent.height - 8px) / 2;
+            border-radius: 4px;
+            background: root.dot;
+        }
+        Text {
+            text: root.text;
+            color: Theme.text;
+            font-size: 12px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+    }
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// Added for the recording page
+// ---------------------------------------------------------------------------------------------
+
+export struct Param {
+    key: string,
+    label: string,
+    value: float,
+    text: string,
+}
+
+export struct FileRow {
+    name: string,
+    info: string,
+    path: string,
+}
+
+export component Chip inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    in property <bool> enabled: true;
+    callback clicked();
+    height: 36px;
+    border-radius: 18px;
+    background: root.selected ? #8b5cf63a : (ta.has-hover && root.enabled ? #ffffff18 : #ffffff0d);
+    border-width: root.selected ? 1.5px : 1px;
+    border-color: root.selected ? Theme.violet : Theme.line;
+    opacity: root.enabled ? 1.0 : 0.4;
+    animate background { duration: 130ms; }
+    Text {
+        text: root.label;
+        color: root.selected ? #ffffff : Theme.text;
+        font-size: 13px;
+        font-weight: root.selected ? 700 : 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A vertical slider for one equaliser band: -range..+range dB, 0 dB in the middle.
+export component VSlider inherits Rectangle {
+    in-out property <float> db: 0;
+    in property <float> range: 15;
+    callback edited(float);
+    width: 38px;
+    property <length> thumb-y: (0.5 - root.db / (2 * root.range)) * (root.height - 22px);
+
+    function pick(y: length) {
+        root.db = Math.round(Math.max(-root.range, Math.min(root.range, (0.5 - (y - 11px) / (root.height - 22px)) * 2 * root.range)) * 2) / 2;
+        root.edited(root.db);
+    }
+
+    Rectangle {
+        x: (parent.width - 6px) / 2;
+        y: 0px;
+        width: 6px;
+        height: parent.height;
+        border-radius: 3px;
+        background: #ffffff17;
+    }
+    Rectangle {
+        x: 4px;
+        y: parent.height / 2 - 0.5px;
+        width: parent.width - 8px;
+        height: 1px;
+        background: #ffffff38;
+    }
+    Rectangle {
+        x: (parent.width - 6px) / 2;
+        y: Math.min(root.thumb-y + 11px, parent.height / 2);
+        width: 6px;
+        height: Math.abs(root.thumb-y + 11px - parent.height / 2);
+        background: @linear-gradient(180deg, #22d3ee 0%, #8b5cf6 100%);
+    }
+    Rectangle {
+        x: (parent.width - 46px) / 2;
+        y: root.thumb-y - 12px;
+        width: 46px;
+        height: 46px;
+        border-radius: 23px;
+        background: @radial-gradient(circle, ta.pressed ? #8b5cf6dd : #8b5cf688 0%, #8b5cf600 70%);
+    }
+    Rectangle {
+        x: (parent.width - 22px) / 2;
+        y: root.thumb-y;
+        width: 22px;
+        height: 22px;
+        border-radius: 11px;
+        background: #ffffff;
+    }
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                root.pick(self.mouse-y);
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                root.pick(self.mouse-y);
+            }
+        }
+    }
+}
+
+// A level meter: the bar is the RMS level, the white tick the held peak. Both 0..1.
+export component LevelBar inherits Rectangle {
+    in property <float> level;
+    in property <float> peak;
+    height: 10px;
+    border-radius: 5px;
+    background: #ffffff12;
+    clip: true;
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width * Math.min(1, Math.max(0, root.level));
+        height: parent.height;
+        clip: true;
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: root.width;
+            height: root.height;
+            background: @linear-gradient(90deg, #30d158 0%, #30d158 60%, #ffd60a 82%, #ff453a 100%);
+        }
+    }
+    Rectangle {
+        x: Math.max(0px, parent.width * Math.min(1, Math.max(0, root.peak)) - 2px);
+        y: 0px;
+        width: 2px;
+        height: parent.height;
+        background: #ffffffd0;
+    }
+}

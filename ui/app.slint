@@ -1,0 +1,743 @@
+// Seiren Control: the window. All state lives in Rust; this file is looks and input only.
+
+import { Theme, Card, FSlider, SliderRow, FSwitch, Btn, Pill, Chip, VSlider, LevelBar, Param, FileRow } from "widgets.slint";
+import { Rec, RecorderPage } from "recorder.slint";
+export { Param, FileRow } from "widgets.slint";
+export { Rec } from "recorder.slint";
+
+component EffectTile inherits Rectangle {
+    in property <string> label;
+    in property <brush> strip;
+    in property <bool> selected;
+    callback clicked();
+    height: 62px;
+    border-radius: 15px;
+    background: root.selected ? #8b5cf630 : (ta.has-hover ? #ffffff14 : #ffffff09);
+    border-width: root.selected ? 1.5px : 1px;
+    border-color: root.selected ? Theme.violet : Theme.line;
+    drop-shadow-blur: root.selected ? 20px : 0px;
+    drop-shadow-color: root.selected ? #8b5cf666 : #00000000;
+    animate background { duration: 140ms; }
+    animate border-color { duration: 140ms; }
+    VerticalLayout {
+        padding: 12px;
+        spacing: 9px;
+        alignment: center;
+        Rectangle {
+            height: 6px;
+            border-radius: 3px;
+            background: root.strip;
+        }
+        Text {
+            text: root.label;
+            color: root.selected ? #ffffff : Theme.text;
+            font-size: 13px;
+            font-weight: root.selected ? 700 : 500;
+            overflow: elide;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+component SlotChip inherits Rectangle {
+    in property <string> label;
+    in property <color> swatch;
+    in property <bool> selected;
+    in property <bool> used: true;
+    callback clicked();
+    height: 42px;
+    border-radius: 13px;
+    background: root.selected ? #ffffff1c : (ta.has-hover ? #ffffff12 : #ffffff09);
+    border-width: root.selected ? 1.5px : 1px;
+    border-color: root.selected ? #ffffff66 : Theme.line;
+    opacity: root.used ? 1.0 : 0.45;
+    animate background { duration: 140ms; }
+    HorizontalLayout {
+        padding-left: 11px;
+        padding-right: 8px;
+        spacing: 9px;
+        alignment: start;
+        Rectangle {
+            width: 20px;
+            height: 20px;
+            y: (parent.height - 20px) / 2;
+            border-radius: 10px;
+            background: root.swatch;
+            border-width: 1px;
+            border-color: #ffffff55;
+            drop-shadow-blur: root.selected ? 10px : 0px;
+            drop-shadow-color: root.selected ? root.swatch : #00000000;
+        }
+        Text {
+            text: root.label;
+            color: Theme.text;
+            font-size: 12px;
+            font-weight: 600;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// The microphone's ring: 48 glowing segments, a glass disc and a little microphone.
+component Ring inherits Rectangle {
+    in property <[color]> seg;
+    in property <color> ambient;
+    width: 330px;
+    height: 330px;
+
+    Rectangle {
+        x: 6px;
+        y: 6px;
+        width: 318px;
+        height: 318px;
+        border-radius: 159px;
+        background: @radial-gradient(circle, #00000000 0%, #00000000 66%, root.ambient.with-alpha(0.34) 84%, #00000000 100%);
+    }
+    for c[i] in root.seg: Rectangle {
+        width: root.width;
+        height: root.height;
+        transform-rotation: i * 7.5deg;
+        // a soft layer behind the segment instead of a blurred shadow (far cheaper to redraw)
+        Rectangle {
+            x: (parent.width - 16px) / 2;
+            y: 7px;
+            width: 16px;
+            height: 40px;
+            border-radius: 8px;
+            background: c.with-alpha(0.26);
+        }
+        Rectangle {
+            x: (parent.width - 8px) / 2;
+            y: 12px;
+            width: 8px;
+            height: 30px;
+            border-radius: 4px;
+            background: c;
+        }
+    }
+    Rectangle {
+        x: (root.width - 214px) / 2;
+        y: (root.height - 214px) / 2;
+        width: 214px;
+        height: 214px;
+        border-radius: 107px;
+        background: @radial-gradient(circle, #1f1f2e 0%, #0d0d15 100%);
+        border-width: 1px;
+        border-color: #ffffff14;
+    }
+    // the microphone
+    Rectangle {
+        x: (root.width - 58px) / 2;
+        y: 104px;
+        width: 58px;
+        height: 98px;
+        border-radius: 29px;
+        background: @linear-gradient(90deg, #262636 0%, #54546e 46%, #20202f 100%);
+        border-width: 1px;
+        border-color: #ffffff28;
+        clip: true;
+        for k in 7: Rectangle {
+            x: 9px;
+            y: 20px + k * 10px;
+            width: parent.width - 18px;
+            height: 2px;
+            border-radius: 1px;
+            background: #00000070;
+        }
+    }
+    Rectangle {
+        x: (root.width - 4px) / 2;
+        y: 204px;
+        width: 4px;
+        height: 18px;
+        background: #ffffff30;
+    }
+    Rectangle {
+        x: (root.width - 44px) / 2;
+        y: 221px;
+        width: 44px;
+        height: 4px;
+        border-radius: 2px;
+        background: #ffffff30;
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The window
+// ---------------------------------------------------------------------------------------------
+
+export component AppWindow inherits Window {
+    title: "Seiren V3 Chroma";
+    preferred-width: 1000px;
+    preferred-height: 800px;
+    min-width: 900px;
+    min-height: 680px;
+    max-width: 4000px;
+    max-height: 4000px;
+    background: Theme.bg;
+    default-font-size: 14px;
+
+    // ring preview
+    in property <[color]> seg;
+    in property <color> ambient: #8b5cf6;
+    // lighting
+    in-out property <string> effect: "static";
+    in-out property <color> c1: #8b5cf6;
+    in-out property <color> c2: #22d3ee;
+    in-out property <color> cm: #ff0000;
+    in-out property <int> slot: 0;
+    in-out property <color> hue-color: #8b5cf6;
+    in-out property <float> hue: 0.75;
+    in-out property <float> sat: 0.6;
+    in-out property <float> val: 0.96;
+    in-out property <float> brightness: 1.0;
+    in-out property <float> speed: 0.23;
+    in-out property <float> period: 0.6;
+    in property <string> speed-text: "";
+    in property <string> period-text: "";
+    in-out property <bool> live: true;
+    // connection
+    in property <int> conn: 0;  // 0 starting, 1 ok, 2 missing, 3 no access, 4 error
+    in property <string> status-text: "";
+    in property <string> fw: "";
+    in property <string> info: "";
+    in-out property <bool> show-grant: false;
+    // 0 lighting, 1 recording
+    in-out property <int> page: 0;
+    callback page-changed(int);
+    // sound
+    in property <bool> audio-ok: false;
+    in-out property <float> gain: 0.5;
+    in-out property <float> mon-vol: 0.5;
+    in-out property <float> phones: 0.5;
+    in-out property <bool> mon-on: false;
+    property <bool> d-gain: false;
+    property <bool> d-mon: false;
+    property <bool> d-ph: false;
+    out property <bool> audio-drag: d-gain || d-mon || d-ph;
+
+    callback set-effect(string);
+    callback slot-selected(int);
+    callback hsv-edited(float, float, float);
+    callback preset(color);
+    callback brightness-edited(float);
+    callback speed-edited(float);
+    callback period-edited(float);
+    callback live-toggled(bool);
+    callback apply();
+    callback save();
+    callback grant-confirm();
+    callback retry();
+    callback gain-edited(float);
+    callback mon-toggled(bool);
+    callback mon-vol-edited(float);
+    callback phones-edited(float);
+
+    property <bool> wave: root.effect == "wave" || root.effect == "wave_rev";
+    property <bool> uses-c1: root.effect == "static" || root.effect == "soft" || root.effect == "breath1" || root.effect == "breath2";
+    property <[{id: string, name: string}]> effects: [
+        { id: "static", name: "Статика" },
+        { id: "breath1", name: "Дыхание" },
+        { id: "breath2", name: "Дыхание ×2" },
+        { id: "soft", name: "Плавное дыхание" },
+        { id: "breath0", name: "Дыхание: случайно" },
+        { id: "spectrum", name: "Спектр" },
+        { id: "wave", name: "Волна" },
+        { id: "wave_rev", name: "Волна назад" },
+        { id: "off", name: "Выключено" },
+    ];
+
+    pure function describe(id: string) -> string {
+        if (id == "static") {
+            return "Один цвет, без движения.";
+        }
+        if (id == "breath1" || id == "breath2" || id == "breath0") {
+            return "Дыхание самой прошивки. Скорость в ней зашита, поменять её нельзя. Для медленного дыхания возьмите «Плавное».";
+        }
+        if (id == "soft") {
+            return "Яркость плавно меняет само приложение, период настраивается. Работает, пока окно открыто.";
+        }
+        if (id == "spectrum") {
+            return "Кольцо перебирает все цвета.";
+        }
+        if (id == "wave" || id == "wave_rev") {
+            return "Радужная волна по кольцу. Скорость настраивается.";
+        }
+        return "Подсветка выключена.";
+    }
+
+    pure function strip(id: string) -> brush {
+        if (id == "static") {
+            return root.c1;
+        }
+        if (id == "breath1" || id == "soft") {
+            return @linear-gradient(90deg, #15151f 0%, root.c1 50%, #15151f 100%);
+        }
+        if (id == "breath2") {
+            return @linear-gradient(90deg, root.c1 0%, #15151f 25%, root.c2 50%, #15151f 75%, root.c1 100%);
+        }
+        if (id == "breath0") {
+            return @linear-gradient(90deg, #15151f 0%, #ff9f0a 25%, #15151f 50%, #30d158 75%, #15151f 100%);
+        }
+        if (id == "spectrum") {
+            return @linear-gradient(90deg, #ff2d55 0%, #ff9f0a 20%, #30d158 45%, #22d3ee 70%, #8b5cf6 100%);
+        }
+        if (id == "wave" || id == "wave_rev") {
+            return @linear-gradient(90deg, #ff2d55 0%, #ffd60a 17%, #30d158 33%, #22d3ee 50%, #0a84ff 67%, #bf5af2 83%, #ff2d55 100%);
+        }
+        return #2a2a38;
+    }
+
+    // soft glows behind everything; the first follows the colour of the ring
+    Rectangle {
+        x: -180px;
+        y: -150px;
+        width: 760px;
+        height: 760px;
+        border-radius: 380px;
+        background: @radial-gradient(circle, root.ambient.with-alpha(0.30) 0%, root.ambient.with-alpha(0.0) 70%);
+    }
+    Rectangle {
+        x: root.width - 400px;
+        y: root.height - 340px;
+        width: 600px;
+        height: 600px;
+        border-radius: 300px;
+        background: @radial-gradient(circle, #22d3ee24 0%, #22d3ee00 70%);
+    }
+
+    VerticalLayout {
+        // ------------------------------------------------------------------ tabs
+        Rectangle {
+            height: 62px;
+            HorizontalLayout {
+                alignment: center;
+                padding-top: 14px;
+                spacing: 8px;
+                for t[i] in ["Подсветка", "Запись и звук"]: Rectangle {
+                    width: 150px;
+                    height: 36px;
+                    border-radius: 18px;
+                    background: root.page == i ? #8b5cf63a : (tab-ta.has-hover ? #ffffff16 : #ffffff0b);
+                    border-width: root.page == i ? 1.5px : 1px;
+                    border-color: root.page == i ? Theme.violet : Theme.line;
+                    animate background { duration: 140ms; }
+                    Text {
+                        text: t;
+                        color: root.page == i ? #ffffff : Theme.dim;
+                        font-size: 13px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    tab-ta := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => {
+                            root.page = i;
+                            root.page-changed(i);
+                        }
+                    }
+                }
+            }
+        }
+        if root.page == 1: RecorderPage {
+            vertical-stretch: 1;
+        }
+        if root.page == 0: HorizontalLayout {
+            vertical-stretch: 1;
+        // ---------------------------------------------------------------- left: the ring
+        Rectangle {
+            width: 400px;
+            VerticalLayout {
+                padding: 26px;
+                padding-bottom: 28px;
+                spacing: 12px;
+                HorizontalLayout {
+                    alignment: center;
+                    Ring {
+                        seg: root.seg;
+                        ambient: root.ambient;
+                    }
+                }
+                Text {
+                    text: "SEIREN V3 CHROMA";
+                    color: Theme.text;
+                    font-size: 13px;
+                    font-weight: 800;
+                    letter-spacing: 3.5px;
+                    horizontal-alignment: center;
+                }
+                HorizontalLayout {
+                    alignment: center;
+                    Pill {
+                        text: root.conn == 1 ? "Подключён" : (root.conn == 2 ? "Не найден" : (root.conn == 3 ? "Нужен доступ" : (root.conn == 4 ? "Ошибка" : "Поиск…")));
+                        dot: root.conn == 1 ? #30d158 : (root.conn == 2 ? #ff9f0a : (root.conn == 0 ? #9a9ab2 : #ff453a));
+                    }
+                }
+                Text {
+                    text: root.status-text;
+                    color: Theme.dim;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                }
+                if root.conn == 3: Btn {
+                    text: "Разрешить доступ…";
+                    primary: true;
+                    clicked => {
+                        root.show-grant = true;
+                    }
+                }
+                if root.conn == 2 || root.conn == 4: Btn {
+                    text: "Повторить";
+                    clicked => {
+                        root.retry();
+                    }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+                Text {
+                    text: root.describe(root.effect);
+                    color: Theme.dim;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text {
+                        text: "Применять сразу при изменении";
+                        color: Theme.text;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                    FSwitch {
+                        checked <=> root.live;
+                        toggled(v) => {
+                            root.live-toggled(v);
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    Btn {
+                        text: "Применить";
+                        enabled: root.conn == 1;
+                        clicked => {
+                            root.apply();
+                        }
+                    }
+                    Btn {
+                        text: "Сохранить в микрофон";
+                        primary: true;
+                        enabled: root.conn == 1;
+                        clicked => {
+                            root.save();
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------- right: the controls
+        Flickable {
+            content-width: self.width;
+            content-height: col.preferred-height;
+            col := VerticalLayout {
+                width: parent.width;
+                padding-top: 26px;
+                padding-bottom: 26px;
+                padding-left: 6px;
+                padding-right: 28px;
+                spacing: 14px;
+
+                Card {
+                    title: "ЭФФЕКТ";
+                    GridLayout {
+                        spacing: 10px;
+                        for e[i] in root.effects: EffectTile {
+                            row: Math.floor(i / 3);
+                            col: Math.mod(i, 3);
+                            label: e.name;
+                            strip: root.strip(e.id);
+                            selected: root.effect == e.id;
+                            clicked => {
+                                root.set-effect(e.id);
+                            }
+                        }
+                    }
+                }
+
+                Card {
+                    title: "ДИНАМИКА";
+                    SliderRow {
+                        label: "Яркость";
+                        value-text: "\{Math.round(root.brightness * 100)}%";
+                        value <=> root.brightness;
+                        edited(v) => {
+                            root.brightness-edited(v);
+                        }
+                    }
+                    if root.wave: SliderRow {
+                        label: "Скорость волны";
+                        value-text: root.speed-text;
+                        value <=> root.speed;
+                        edited(v) => {
+                            root.speed-edited(v);
+                        }
+                    }
+                    if root.effect == "soft": SliderRow {
+                        label: "Период дыхания";
+                        value-text: root.period-text;
+                        value <=> root.period;
+                        edited(v) => {
+                            root.period-edited(v);
+                        }
+                    }
+                    if !root.wave && root.effect != "soft": Text {
+                        text: "У этого эффекта скорость задаёт прошивка.";
+                        color: Theme.dim;
+                        font-size: 12px;
+                    }
+                }
+
+                Card {
+                    title: "ЦВЕТ";
+                    HorizontalLayout {
+                        spacing: 8px;
+                        SlotChip {
+                            label: "Цвет 1";
+                            swatch: root.c1;
+                            selected: root.slot == 0;
+                            used: root.uses-c1;
+                            clicked => {
+                                root.slot-selected(0);
+                            }
+                        }
+                        SlotChip {
+                            label: "Цвет 2";
+                            swatch: root.c2;
+                            selected: root.slot == 1;
+                            used: root.effect == "breath2";
+                            clicked => {
+                                root.slot-selected(1);
+                            }
+                        }
+                        SlotChip {
+                            label: "При mute";
+                            swatch: root.cm;
+                            selected: root.slot == 2;
+                            clicked => {
+                                root.slot-selected(2);
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 9px;
+                        alignment: start;
+                        for pc in [#ffffff, #ff2d55, #ff9f0a, #ffd60a, #30d158, #00e5c8, #22d3ee, #0a84ff, #8b5cf6, #ff3dbb]: Rectangle {
+                            width: 28px;
+                            height: 28px;
+                            border-radius: 14px;
+                            background: pc;
+                            border-width: 1px;
+                            border-color: #ffffff40;
+                            drop-shadow-blur: pa.has-hover ? 12px : 0px;
+                            drop-shadow-color: pa.has-hover ? pc : #00000000;
+                            animate drop-shadow-blur { duration: 120ms; }
+                            pa := TouchArea {
+                                mouse-cursor: MouseCursor.pointer;
+                                clicked => {
+                                    root.preset(pc);
+                                }
+                            }
+                        }
+                    }
+                    SliderRow {
+                        label: "Оттенок";
+                        value-text: "";
+                        filled: false;
+                        track: @linear-gradient(90deg, #ff0000 0%, #ffff00 16.66%, #00ff00 33.33%, #00ffff 50%, #0000ff 66.66%, #ff00ff 83.33%, #ff0000 100%);
+                        value <=> root.hue;
+                        edited(v) => {
+                            root.hsv-edited(root.hue, root.sat, root.val);
+                        }
+                    }
+                    SliderRow {
+                        label: "Насыщенность";
+                        value-text: "\{Math.round(root.sat * 100)}%";
+                        filled: false;
+                        track: @linear-gradient(90deg, #ffffff 0%, root.hue-color 100%);
+                        value <=> root.sat;
+                        edited(v) => {
+                            root.hsv-edited(root.hue, root.sat, root.val);
+                        }
+                    }
+                    SliderRow {
+                        label: "Светлота";
+                        value-text: "\{Math.round(root.val * 100)}%";
+                        filled: false;
+                        track: @linear-gradient(90deg, #000000 0%, root.hue-color 100%);
+                        value <=> root.val;
+                        edited(v) => {
+                            root.hsv-edited(root.hue, root.sat, root.val);
+                        }
+                    }
+                }
+
+                if root.audio-ok: Card {
+                    title: "ЗВУК";
+                    SliderRow {
+                        pressed-changed(p) => {
+                            root.d-gain = p;
+                        }
+                        label: "Усиление микрофона";
+                        value-text: "\{Math.round(root.gain * 100)}%";
+                        value <=> root.gain;
+                        edited(v) => {
+                            root.gain-edited(v);
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            text: "Слышать себя в наушниках";
+                            color: Theme.text;
+                            font-size: 13px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                        FSwitch {
+                            checked <=> root.mon-on;
+                            toggled(v) => {
+                                root.mon-toggled(v);
+                            }
+                        }
+                    }
+                    SliderRow {
+                        pressed-changed(p) => {
+                            root.d-mon = p;
+                        }
+                        label: "Громкость себя";
+                        value-text: "\{Math.round(root.mon-vol * 100)}%";
+                        value <=> root.mon-vol;
+                        edited(v) => {
+                            root.mon-vol-edited(v);
+                        }
+                    }
+                    SliderRow {
+                        pressed-changed(p) => {
+                            root.d-ph = p;
+                        }
+                        label: "Громкость наушников";
+                        value-text: "\{Math.round(root.phones * 100)}%";
+                        value <=> root.phones;
+                        edited(v) => {
+                            root.phones-edited(v);
+                        }
+                    }
+                }
+            }
+        }
+        }
+    }
+
+    // ------------------------------------------------------------------ toast
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - 78px;
+        width: Math.min(620px, parent.width - 60px);
+        height: toast-text.preferred-height + 28px;
+        border-radius: 16px;
+        background: #191926f2;
+        border-width: 1px;
+        border-color: #ffffff22;
+        drop-shadow-blur: 30px;
+        drop-shadow-color: #000000aa;
+        opacity: root.info != "" ? 1.0 : 0.0;
+        animate opacity { duration: 240ms; }
+        toast-text := Text {
+            x: 16px;
+            y: 14px;
+            width: parent.width - 32px;
+            text: root.info;
+            color: Theme.text;
+            font-size: 13px;
+            wrap: word-wrap;
+            horizontal-alignment: center;
+        }
+    }
+
+    // ------------------------------------------------------------------ one-time access dialog
+    if root.show-grant: Rectangle {
+        background: #000000bd;
+        TouchArea {
+            clicked => { }
+        }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 470px;
+            height: dlg.preferred-height;
+            border-radius: 24px;
+            background: #15151f;
+            border-width: 1px;
+            border-color: #ffffff26;
+            drop-shadow-blur: 50px;
+            drop-shadow-color: #8b5cf655;
+            dlg := VerticalLayout {
+                padding: 26px;
+                spacing: 14px;
+                Text {
+                    text: "Разрешить доступ к микрофону?";
+                    color: #ffffff;
+                    font-size: 18px;
+                    font-weight: 800;
+                }
+                Text {
+                    text: "Linux не даёт обычному пользователю открывать управляющий интерфейс микрофона. Будет создан один файл /etc/udev/rules.d/70-seiren-v3-chroma.rules с правилом «разрешить текущему пользователю». Понадобится пароль (polkit; если его нет, команды для терминала покажет seiren-control --grant-help). Службы и демоны не запускаются; отменить можно, удалив этот файл.";
+                    color: Theme.dim;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    padding-top: 6px;
+                    Btn {
+                        text: "Отмена";
+                        clicked => {
+                            root.show-grant = false;
+                        }
+                    }
+                    Btn {
+                        text: "Разрешить";
+                        primary: true;
+                        clicked => {
+                            root.show-grant = false;
+                            root.grant-confirm();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

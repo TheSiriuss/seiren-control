@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b1a63"/>
+      <stop offset="1" stop-color="#090913"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a78bfa"/>
+      <stop offset="0.55" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8d93aa"/>
+      <stop offset="0.45" stop-color="#f6f7fc"/>
+      <stop offset="1" stop-color="#7f869e"/>
+    </linearGradient>
+    <clipPath id="cap"><rect x="100" y="58" width="56" height="98" rx="28"/></clipPath>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="7"/></filter>
+  </defs>
+  <rect width="256" height="256" rx="58" fill="url(#bg)"/>
+  <circle cx="128" cy="112" r="80" fill="none" stroke="url(#ring)" stroke-width="14" opacity="0.65" filter="url(#glow)"/>
+  <circle cx="128" cy="112" r="80" fill="none" stroke="url(#ring)" stroke-width="8" stroke-linecap="round"/>
+  <rect x="100" y="58" width="56" height="98" rx="28" fill="url(#body)"/>
+  <g clip-path="url(#cap)" stroke="#4b5068" stroke-width="2.2" opacity="0.55">
+    <line x1="96" y1="76" x2="160" y2="76"/><line x1="96" y1="90" x2="160" y2="90"/>
+    <line x1="96" y1="104" x2="160" y2="104"/><line x1="96" y1="118" x2="160" y2="118"/>
+    <line x1="96" y1="132" x2="160" y2="132"/>
+  </g>
+  <rect x="121" y="156" width="14" height="40" rx="5" fill="#aeb3c8"/>
+  <rect x="88" y="192" width="80" height="12" rx="6" fill="#c9cde0"/>
+  <path d="M 56 214 Q 128 236 200 214" fill="none" stroke="url(#ring)" stroke-width="6" stroke-linecap="round" opacity="0.8"/>
+</svg>

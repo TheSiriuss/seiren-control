@@ -1,0 +1,747 @@
+// The recording page: record button, meters, spectrum, and the whole voice chain.
+// State lives in the `Rec` global, which Rust fills and listens to.
+
+import { Theme, Card, SliderRow, FSwitch, Btn, Chip, VSlider, LevelBar, Param, FileRow } from "widgets.slint";
+
+export global Rec {
+    // transport
+    in property <bool> recording;
+    in property <string> rec-time: "00:00";
+    // 0..1, animated by Rust while recording
+    in property <float> pulse;
+    in property <bool> running;
+    // meters, 0..1 on a -60..0 dB scale
+    in property <float> in-level;
+    in property <float> in-peak;
+    in property <float> out-level;
+    in property <float> out-peak;
+    in property <string> in-db: "−∞";
+    in property <string> out-db: "−∞";
+    in property <string> lufs: "—";
+    in property <string> comp-gr: "0.0";
+    in property <string> limit-gr: "0.0";
+    in property <string> mouth-gr: "0";
+    in property <bool> gate-open: true;
+    in property <[float]> spectrum;
+    // the equaliser curve and the area under it, as path commands in a 520 x 130 box
+    in property <string> eq-curve;
+    in property <string> eq-fill;
+    // the last take
+    in property <string> wave;
+    in property <string> last-file;
+    in property <string> last-info;
+    in property <bool> playing;
+    // noise suppression status
+    in property <bool> dfn-loading;
+    in property <float> learning: -1;
+    in property <bool> has-profile;
+    // settings
+    in-out property <string> preset;
+    in-out property <int> denoise-mode: 2;
+    in-out property <bool> hpf-on;
+    in-out property <bool> mouth-on;
+    in-out property <bool> eq-on;
+    in-out property <bool> gate-on;
+    in-out property <bool> deess-on;
+    in-out property <bool> comp-on;
+    in-out property <bool> limit-on;
+    in property <[float]> eq-gains;
+    in property <[Param]> p-denoise;
+    in property <[Param]> p-hpf;
+    in property <[Param]> p-mouth;
+    in property <[Param]> p-gate;
+    in property <[Param]> p-deess;
+    in property <[Param]> p-comp;
+    in property <[Param]> p-limit;
+    in property <[Param]> p-levels;
+    in-out property <int> format;
+    in property <[string]> formats;
+    in-out property <bool> keep-raw;
+    in-out property <bool> normalize;
+    in-out property <bool> monitor;
+    in-out property <bool> virtual-mic;
+    in property <string> folder;
+    in property <[FileRow]> files;
+
+    callback record();
+    callback stop();
+    callback param(string, float);
+    callback toggle(string, bool);
+    callback set-denoise(int);
+    callback eq-band(int, float);
+    callback eq-reset();
+    callback preset-selected(string);
+    callback learn-noise();
+    callback forget-noise();
+    callback set-format(int);
+    callback option(string, bool);
+    callback play(string);
+    callback stop-play();
+    callback open-folder();
+}
+
+// One block of the chain: a title with an on/off switch and its sliders.
+component ParamSection inherits VerticalLayout {
+    in property <string> title;
+    in-out property <bool> on;
+    in property <[Param]> params;
+    callback toggled(bool);
+    callback edited(string, float);
+    spacing: 8px;
+    HorizontalLayout {
+        Text {
+            text: root.title;
+            color: Theme.text;
+            font-size: 14px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+        FSwitch {
+            checked <=> root.on;
+            toggled(v) => {
+                root.toggled(v);
+            }
+        }
+    }
+    for p in root.params: SliderRow {
+        opacity: root.on ? 1.0 : 0.45;
+        label: p.label;
+        value-text: p.text;
+        value: p.value;
+        edited(v) => {
+            root.edited(p.key, v);
+        }
+    }
+}
+
+component SwitchRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> hint;
+    in-out property <bool> checked;
+    callback toggled(bool);
+    spacing: 10px;
+    VerticalLayout {
+        alignment: center;
+        Text {
+            text: root.label;
+            color: Theme.text;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        if root.hint != "": Text {
+            text: root.hint;
+            color: Theme.dim;
+            font-size: 11px;
+            wrap: word-wrap;
+        }
+    }
+    Rectangle {
+        horizontal-stretch: 1;
+    }
+    FSwitch {
+        checked <=> root.checked;
+        toggled(v) => {
+            root.toggled(v);
+        }
+    }
+}
+
+component MeterRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <float> level;
+    in property <float> peak;
+    in property <string> db;
+    spacing: 10px;
+    Text {
+        text: root.label;
+        color: Theme.dim;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 1.5px;
+        vertical-alignment: center;
+        width: 52px;
+    }
+    LevelBar {
+        level: root.level;
+        peak: root.peak;
+        y: 0px;
+    }
+    Text {
+        text: root.db;
+        color: Theme.text;
+        font-size: 12px;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+        width: 64px;
+    }
+}
+
+export component RecorderPage inherits HorizontalLayout {
+    property <[{id: string, name: string}]> presets: [
+        { id: "podcast", name: "Подкаст" },
+        { id: "stream", name: "Стрим" },
+        { id: "vocal", name: "Вокал" },
+        { id: "calls", name: "Звонки" },
+        { id: "clean", name: "Чистый" },
+        { id: "off", name: "Без обработки" },
+    ];
+    property <[string]> modes: ["Выкл", "RNNoise", "DeepFilterNet3", "Спектральный"];
+    property <[string]> band-labels: ["80", "160", "315", "630", "1.2к", "2.5к", "5к", "10к"];
+
+    pure function mode-text(m: int) -> string {
+        if (m == 1) {
+            return "RNNoise: лёгкая нейросеть. Почти не грузит процессор и хорошо давит ровный фон.";
+        }
+        if (m == 2) {
+            return "DeepFilterNet3: самая сильная модель. Убирает клавиатуру, вентиляторы, шум улицы. На полной силе может съесть и фоновую музыку, тогда уменьшите силу.";
+        }
+        if (m == 3) {
+            return "Спектральное вычитание для постоянного гула и вентиляторов. «Запомнить шум» берёт 2 секунды тишины в комнате и вычитает именно его.";
+        }
+        return "Подавление шума выключено.";
+    }
+
+        // ------------------------------------------------------------------ left: record + meters
+        Rectangle {
+            width: 400px;
+            VerticalLayout {
+                padding: 24px;
+                padding-bottom: 20px;
+                spacing: 12px;
+                alignment: start;
+
+                HorizontalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 176px;
+                        height: 176px;
+                        Rectangle {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            width: 140px + Rec.pulse * 36px;
+                            height: self.width;
+                            border-radius: self.width / 2;
+                            background: @radial-gradient(circle, #ff453a66 0%, #ff453a00 70%);
+                            opacity: Rec.recording ? 1.0 : 0.0;
+                            animate opacity { duration: 250ms; }
+                        }
+                        Rectangle {
+                            x: 28px;
+                            y: 28px;
+                            width: 120px;
+                            height: 120px;
+                            border-radius: 60px;
+                            border-width: 3px;
+                            border-color: Rec.recording ? #ff453a : #ffffff40;
+                            animate border-color { duration: 200ms; }
+                        }
+                        Rectangle {
+                            x: 44px;
+                            y: 44px;
+                            width: 88px;
+                            height: 88px;
+                            border-radius: Rec.recording ? 18px : 44px;
+                            background: @linear-gradient(180deg, #ff6b61 0%, #e0302a 100%);
+                            drop-shadow-blur: 26px;
+                            drop-shadow-color: #ff453a99;
+                            animate border-radius { duration: 220ms; easing: ease-out; }
+                        }
+                        TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => {
+                                if (Rec.recording) {
+                                    Rec.stop();
+                                } else {
+                                    Rec.record();
+                                }
+                            }
+                        }
+                    }
+                }
+                Text {
+                    text: Rec.rec-time;
+                    color: Rec.recording ? #ff6b61 : Theme.text;
+                    font-size: 38px;
+                    font-weight: 800;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: Rec.recording ? "Идёт запись обработанного звука" : "Нажмите, чтобы начать запись";
+                    color: Theme.dim;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                }
+
+                Rectangle {
+                    background: #ffffff0a;
+                    border-radius: 18px;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    height: meters.preferred-height;
+                    meters := VerticalLayout {
+                        padding: 14px;
+                        spacing: 9px;
+                        MeterRow {
+                            label: "ВХОД";
+                            level: Rec.in-level;
+                            peak: Rec.in-peak;
+                            db: Rec.in-db;
+                        }
+                        MeterRow {
+                            label: "ВЫХОД";
+                            level: Rec.out-level;
+                            peak: Rec.out-peak;
+                            db: Rec.out-db;
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text {
+                                text: "Громкость \{Rec.lufs}";
+                                color: Theme.dim;
+                                font-size: 11px;
+                            }
+                            Rectangle {
+                                horizontal-stretch: 1;
+                            }
+                            Text {
+                                text: "Рот −\{Rec.mouth-gr}  Комп. −\{Rec.comp-gr}  Лимит. −\{Rec.limit-gr} дБ";
+                                color: Theme.dim;
+                                font-size: 11px;
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: 96px;
+                    background: #ffffff0a;
+                    border-radius: 18px;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    clip: true;
+                    HorizontalLayout {
+                        padding: 12px;
+                        spacing: 1.5px;
+                        for v in Rec.spectrum: Rectangle {
+                            Rectangle {
+                                y: parent.height - self.height;
+                                width: parent.width;
+                                height: Math.max(2px, v * parent.height);
+                                border-radius: 1.5px;
+                                background: @linear-gradient(0deg, #8b5cf6 0%, #22d3ee 100%);
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    background: #ffffff0a;
+                    border-radius: 18px;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    height: take.preferred-height;
+                    take := VerticalLayout {
+                        padding: 14px;
+                        spacing: 8px;
+                        Text {
+                            text: Rec.last-file != "" ? Rec.last-file : "Записей в этом сеансе ещё нет";
+                            color: Theme.text;
+                            font-size: 12px;
+                            font-weight: 600;
+                            overflow: elide;
+                        }
+                        if Rec.wave != "": Path {
+                            height: 48px;
+                            viewbox-width: 360;
+                            viewbox-height: 48;
+                            commands: Rec.wave;
+                            stroke: #22d3ee;
+                            stroke-width: 1.4px;
+                        }
+                        if Rec.last-info != "": Text {
+                            text: Rec.last-info;
+                            color: Theme.dim;
+                            font-size: 11px;
+                        }
+                        if Rec.last-file != "": HorizontalLayout {
+                            spacing: 8px;
+                            Btn {
+                                height: 36px;
+                                text: Rec.playing ? "Стоп" : "Прослушать";
+                                clicked => {
+                                    if (Rec.playing) {
+                                        Rec.stop-play();
+                                    } else {
+                                        Rec.play("");
+                                    }
+                                }
+                            }
+                            Btn {
+                                height: 36px;
+                                text: "Открыть папку";
+                                clicked => {
+                                    Rec.open-folder();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ------------------------------------------------------------------ right: the chain
+        Flickable {
+            horizontal-stretch: 1;
+            max-width: 100000px;
+            content-width: self.width;
+            content-height: col.preferred-height;
+            col := VerticalLayout {
+                width: parent.width;
+                padding-top: 26px;
+                padding-bottom: 26px;
+                padding-left: 6px;
+                padding-right: 28px;
+                spacing: 14px;
+
+                Card {
+                    title: "ПРЕСЕТЫ";
+                    GridLayout {
+                        spacing: 8px;
+                        for p[i] in root.presets: Chip {
+                            row: Math.floor(i / 3);
+                            col: Math.mod(i, 3);
+                            label: p.name;
+                            selected: Rec.preset == p.id;
+                            clicked => {
+                                Rec.preset-selected(p.id);
+                            }
+                        }
+                    }
+                }
+
+                Card {
+                    title: "ШУМОПОДАВЛЕНИЕ";
+                    GridLayout {
+                        spacing: 8px;
+                        for m[i] in root.modes: Chip {
+                            row: Math.floor(i / 2);
+                            col: Math.mod(i, 2);
+                            label: m;
+                            selected: Rec.denoise-mode == i;
+                            clicked => {
+                                Rec.set-denoise(i);
+                            }
+                        }
+                    }
+                    Text {
+                        text: root.mode-text(Rec.denoise-mode);
+                        color: Theme.dim;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                    if Rec.denoise-mode == 2 && Rec.dfn-loading: Text {
+                        text: "Модель DeepFilterNet3 загружается, до этого звук идёт без обработки…";
+                        color: #ffd60a;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                    if Rec.denoise-mode != 0: SliderRow {
+                        label: "Сила подавления";
+                        value-text: Rec.p-denoise.length > 0 ? Rec.p-denoise[0].text : "";
+                        value: Rec.p-denoise.length > 0 ? Rec.p-denoise[0].value : 0.7;
+                        edited(v) => {
+                            Rec.param("denoise_strength", v);
+                        }
+                    }
+                    if Rec.denoise-mode == 3: HorizontalLayout {
+                        spacing: 8px;
+                        Btn {
+                            height: 40px;
+                            text: Rec.learning >= 0 ? "Слушаю тишину… \{Math.round(Rec.learning * 100)}%" : (Rec.has-profile ? "Запомнить шум заново" : "Запомнить шум комнаты");
+                            enabled: Rec.learning < 0;
+                            clicked => {
+                                Rec.learn-noise();
+                            }
+                        }
+                        if Rec.has-profile: Btn {
+                            height: 40px;
+                            text: "Забыть";
+                            clicked => {
+                                Rec.forget-noise();
+                            }
+                        }
+                    }
+                }
+
+                Card {
+                    title: "ЗВУКИ РТА";
+                    Text {
+                        text: "Причмокивание, щелчки языка, чавканье, влага во рту и глотки между словами. Звук, который не касается слова, приглушается; согласные внутри слов остаются. Добавляет около 70 мс задержки.";
+                        color: Theme.dim;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                    ParamSection {
+                        title: "Подавление звуков рта";
+                        on <=> Rec.mouth-on;
+                        params: Rec.p-mouth;
+                        toggled(v) => {
+                            Rec.toggle("mouth", v);
+                        }
+                        edited(k, v) => {
+                            Rec.param(k, v);
+                        }
+                    }
+                }
+
+                Card {
+                    title: "ЭКВАЛАЙЗЕР";
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            text: "Полки по краям, колокола между ними";
+                            color: Theme.dim;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                        Btn {
+                            width: 70px;
+                            height: 32px;
+                            text: "Сброс";
+                            clicked => {
+                                Rec.eq-reset();
+                            }
+                        }
+                        FSwitch {
+                            checked <=> Rec.eq-on;
+                            toggled(v) => {
+                                Rec.toggle("eq", v);
+                            }
+                        }
+                    }
+                    Rectangle {
+                        height: 130px;
+                        background: #00000040;
+                        border-radius: 14px;
+                        clip: true;
+                        opacity: Rec.eq-on ? 1.0 : 0.45;
+                        for k in 5: Rectangle {
+                            x: 0px;
+                            y: parent.height * (k + 0.5) / 5 - 0.5px;
+                            width: parent.width;
+                            height: 1px;
+                            background: k == 2 ? #ffffff30 : #ffffff10;
+                        }
+                        Path {
+                            width: parent.width;
+                            height: parent.height;
+                            viewbox-width: 520;
+                            viewbox-height: 130;
+                            commands: Rec.eq-fill;
+                            fill: #8b5cf630;
+                        }
+                        Path {
+                            width: parent.width;
+                            height: parent.height;
+                            viewbox-width: 520;
+                            viewbox-height: 130;
+                            commands: Rec.eq-curve;
+                            stroke: #22d3ee;
+                            stroke-width: 2.2px;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 0px;
+                        opacity: Rec.eq-on ? 1.0 : 0.45;
+                        for g[i] in Rec.eq-gains: VerticalLayout {
+                            spacing: 4px;
+                            alignment: start;
+                            Text {
+                                text: (sl.db > 0 ? "+" : "") + sl.db;
+                                color: Theme.text;
+                                font-size: 11px;
+                                horizontal-alignment: center;
+                            }
+                            sl := VSlider {
+                                height: 120px;
+                                db: g;
+                                edited(v) => {
+                                    Rec.eq-band(i, v);
+                                }
+                            }
+                            Text {
+                                text: root.band-labels[i];
+                                color: Theme.dim;
+                                font-size: 11px;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                Card {
+                    title: "ДИНАМИКА И ФИЛЬТРЫ";
+                    ParamSection {
+                        title: "Фильтр низких частот";
+                        on <=> Rec.hpf-on;
+                        params: Rec.p-hpf;
+                        toggled(v) => {
+                            Rec.toggle("hpf", v);
+                        }
+                        edited(k, v) => {
+                            Rec.param(k, v);
+                        }
+                    }
+                    ParamSection {
+                        title: "Гейт (убирает тихий фон между фразами)";
+                        on <=> Rec.gate-on;
+                        params: Rec.p-gate;
+                        toggled(v) => {
+                            Rec.toggle("gate", v);
+                        }
+                        edited(k, v) => {
+                            Rec.param(k, v);
+                        }
+                    }
+                    ParamSection {
+                        title: "Де-эссер (смягчает «с» и «ш»)";
+                        on <=> Rec.deess-on;
+                        params: Rec.p-deess;
+                        toggled(v) => {
+                            Rec.toggle("deess", v);
+                        }
+                        edited(k, v) => {
+                            Rec.param(k, v);
+                        }
+                    }
+                    ParamSection {
+                        title: "Компрессор (выравнивает громкость)";
+                        on <=> Rec.comp-on;
+                        params: Rec.p-comp;
+                        toggled(v) => {
+                            Rec.toggle("comp", v);
+                        }
+                        edited(k, v) => {
+                            Rec.param(k, v);
+                        }
+                    }
+                    ParamSection {
+                        title: "Лимитер (не даёт звуку клипать)";
+                        on <=> Rec.limit-on;
+                        params: Rec.p-limit;
+                        toggled(v) => {
+                            Rec.toggle("limit", v);
+                        }
+                        edited(k, v) => {
+                            Rec.param(k, v);
+                        }
+                    }
+                    Text {
+                        text: "Уровни";
+                        color: Theme.text;
+                        font-size: 14px;
+                        font-weight: 700;
+                    }
+                    for p in Rec.p-levels: SliderRow {
+                        label: p.label;
+                        value-text: p.text;
+                        value: p.value;
+                        edited(v) => {
+                            Rec.param(p.key, v);
+                        }
+                    }
+                }
+
+                Card {
+                    title: "ЗАПИСЬ И ВЫВОД";
+                    HorizontalLayout {
+                        spacing: 8px;
+                        for f[i] in Rec.formats: Chip {
+                            label: f;
+                            selected: Rec.format == i;
+                            clicked => {
+                                Rec.set-format(i);
+                            }
+                        }
+                    }
+                    SwitchRow {
+                        label: "Сохранять оригинал рядом";
+                        hint: "Второй файл без обработки, чтобы сравнить на слух";
+                        checked <=> Rec.keep-raw;
+                        toggled(v) => {
+                            Rec.option("keep_raw", v);
+                        }
+                    }
+                    SwitchRow {
+                        label: "Выровнять громкость до −16 LUFS";
+                        hint: "После записи, как у подкастов и YouTube";
+                        checked <=> Rec.normalize;
+                        toggled(v) => {
+                            Rec.option("normalize", v);
+                        }
+                    }
+                    SwitchRow {
+                        label: "Слышать обработанный звук";
+                        hint: "В наушники микрофона. Только в наушниках, иначе будет свист";
+                        checked <=> Rec.monitor;
+                        toggled(v) => {
+                            Rec.option("monitor", v);
+                        }
+                    }
+                    SwitchRow {
+                        label: "Виртуальный микрофон «Seiren Clean»";
+                        hint: "Обработанный звук для Discord, OBS, браузера: выберите его как микрофон";
+                        checked <=> Rec.virtual-mic;
+                        toggled(v) => {
+                            Rec.option("virtual_mic", v);
+                        }
+                    }
+                    Text {
+                        text: "Папка: \{Rec.folder}";
+                        color: Theme.dim;
+                        font-size: 11px;
+                        wrap: word-wrap;
+                    }
+                    for f in Rec.files: Rectangle {
+                        height: 44px;
+                        border-radius: 12px;
+                        background: #ffffff09;
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 8px;
+                            spacing: 8px;
+                            VerticalLayout {
+                                alignment: center;
+                                Text {
+                                    text: f.name;
+                                    color: Theme.text;
+                                    font-size: 12px;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: f.info;
+                                    color: Theme.dim;
+                                    font-size: 10px;
+                                }
+                            }
+                            Btn {
+                                width: 78px;
+                                height: 32px;
+                                y: 6px;
+                                text: "Слушать";
+                                clicked => {
+                                    Rec.play(f.path);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+}
