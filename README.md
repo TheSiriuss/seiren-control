@@ -49,9 +49,9 @@ newer, `pkg-config`, and the fontconfig and freetype development files are neede
 
 | | build and run-time packages `install.sh --deps` installs | notes |
 |---|---|---|
-| Arch | `base-devel pkgconf fontconfig freetype2 libxkbcommon libxkbcommon-x11 libx11 libxcursor libxi libxrandr wayland mesa libpulse alsa-utils ffmpeg polkit xdg-utils xdg-user-dirs` | `rust` from the repo is fine while it is 1.96+ |
-| Debian / Ubuntu | `build-essential pkg-config libfontconfig1-dev libfreetype6-dev` + X11/Wayland/GL libs, `pulseaudio-utils alsa-utils ffmpeg pkexec xdg-utils xdg-user-dirs` | the distro `rustc` is too old: use `--rustup` |
-| Void | `base-devel pkg-config fontconfig-devel freetype-devel` + X11/Wayland/GL libs, `pulseaudio-utils alsa-utils ffmpeg polkit xdg-utils xdg-user-dirs` | |
+| Arch | `base-devel pkgconf fontconfig freetype2 libxkbcommon libxkbcommon-x11 libx11 libxcursor libxi libxrandr wayland mesa libpulse alsa-utils ffmpeg polkit xdg-utils xdg-user-dirs ttf-dejavu` | `rust` from the repo is fine while it is 1.96+ |
+| Debian / Ubuntu | `build-essential pkg-config libfontconfig1-dev libfreetype6-dev` + X11/Wayland/GL libs, `pulseaudio-utils alsa-utils ffmpeg pkexec xdg-utils xdg-user-dirs fonts-dejavu-core` | the distro `rustc` is too old: use `--rustup` |
+| Void | `base-devel pkg-config fontconfig-devel freetype-devel` + X11/Wayland/GL libs, `pulseaudio-utils alsa-utils ffmpeg polkit xdg-utils xdg-user-dirs dejavu-fonts-ttf` (and `mesa mesa-dri libglvnd`) | |
 | Slackware | nothing to install on a full installation | Rust through `--rustup`; ffmpeg is optional (SlackBuilds.org) |
 
 The continuous-integration workflow builds and tests it inside Arch, Debian 12, Debian 13, Void and Slackware 15.0

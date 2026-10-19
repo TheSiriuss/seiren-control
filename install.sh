@@ -79,12 +79,13 @@ install_deps() {
     # Build: a C compiler, pkg-config, fontconfig and freetype headers (the window text).
     # Run: X11/Wayland/GL libraries (loaded at run time), the PulseAudio client tools (they talk to
     # PipeWire's pulse layer too), alsa-utils, polkit for the access button, ffmpeg for FLAC/Opus/MP3.
+    # At least one font (the window draws text; with no fonts at all the text engine panics).
     # An audio server (PipeWire with pipewire-pulse, or PulseAudio) is yours to choose; none is installed here.
     case "$distro" in
         arch)
             as_root pacman -S --needed --noconfirm base-devel pkgconf curl fontconfig freetype2 \
                 libxkbcommon libxkbcommon-x11 libx11 libxcursor libxi libxrandr wayland mesa \
-                libpulse alsa-utils ffmpeg polkit xdg-utils xdg-user-dirs
+                libpulse alsa-utils ffmpeg polkit xdg-utils xdg-user-dirs ttf-dejavu
             ;;
         debian)
             as_root apt-get update
@@ -92,15 +93,15 @@ install_deps() {
                 libfontconfig1-dev libfreetype6-dev \
                 libxkbcommon0 libxkbcommon-x11-0 libx11-6 libxcursor1 libxi6 libxrandr2 \
                 libwayland-client0 libwayland-cursor0 libwayland-egl1 libegl1 libgl1 \
-                pulseaudio-utils alsa-utils ffmpeg xdg-utils xdg-user-dirs
+                pulseaudio-utils alsa-utils ffmpeg xdg-utils xdg-user-dirs fonts-dejavu-core
             as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y pkexec \
                 || as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y policykit-1 \
                 || say "could not install pkexec; the access button will tell you the terminal commands instead"
             ;;
         void)
             as_root xbps-install -Sy base-devel pkg-config curl fontconfig-devel freetype-devel \
-                libxkbcommon libX11 libXcursor libXi libXrandr wayland MesaLib libglvnd \
-                pulseaudio-utils alsa-utils ffmpeg polkit xdg-utils xdg-user-dirs
+                libxkbcommon libxkbcommon-x11 libX11 libXcursor libXi libXrandr wayland mesa mesa-dri libglvnd \
+                pulseaudio-utils alsa-utils ffmpeg polkit xdg-utils xdg-user-dirs dejavu-fonts-ttf
             ;;
         slackware)
             say "Slackware: a full installation already has the compiler, pkg-config, fontconfig, freetype, X11,"
