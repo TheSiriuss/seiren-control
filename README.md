@@ -1,5 +1,7 @@
 # Seiren Control
 
+[![build](https://github.com/TheSiriuss/seiren-control/actions/workflows/ci.yml/badge.svg)](https://github.com/TheSiriuss/seiren-control/actions/workflows/ci.yml)
+
 A control panel for the Razer Seiren V3 Chroma on Linux. Rust + Slint, one binary, no daemon, no service.
 Unofficial: not affiliated with Razer.
 
@@ -32,6 +34,10 @@ Unofficial: not affiliated with Razer.
 ```
 
 ## Install
+
+A prebuilt x86-64 binary (built on Slackware 15.0, so it runs on any glibc 2.33 or newer) is attached to each
+[release](https://github.com/TheSiriuss/seiren-control/releases); it needs `fontconfig` and `freetype` installed.
+Or build from source:
 
 Works on Arch (CachyOS, Manjaro, EndeavourOS), Debian (Ubuntu, Mint), Void and Slackware. It is built from source, so it
 does not care which libc or init system you have (systemd, runit, OpenRC, Slackware's rc scripts).
